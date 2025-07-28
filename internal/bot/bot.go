@@ -114,34 +114,37 @@ func (c *Client) fetchPostDetailsAndSend(bot *gotgbot.Bot, ctx *ext.Context) err
 			toSendText = "No media found."
 			break
 		}
+		// Log all available media qualities
+		log.Println("Available media entries for", realPostUrl)
+		for i, media := range data.Medias {
+			log.Printf("Media %d: Link=%s, Quality=%s, Width=%d, Height=%d", i, media.Link, media.Quality, media.Dim.Width, media.Dim.Height)
+		}
 		// Select the highest quality media
-		selectedMedia := data.Medias[len(data.Medias)-1]
+		var selectedMedia reddit.FetchResultMediaEntry
+		switch data.Type {
+		case reddit.FetchResultMediaTypePhoto, reddit.FetchResultMediaTypeGif:
+			// For photos and GIFs, highest quality is the first entry (source)
+			selectedMedia = data.Medias[0]
+			log.Println("Selected media for photo/GIF:", selectedMedia.Link, "Quality:", selectedMedia.Quality, "Dimensions:", selectedMedia.Dim.Width, "x", selectedMedia.Dim.Height)
+		case reddit.FetchResultMediaTypeVideo:
+			// For videos, select the first entry (highest quality)
+			selectedMedia = data.Medias[0]
+			log.Println("Selected video URL:", selectedMedia.Link, "Quality:", selectedMedia.Quality, "Dimensions:", selectedMedia.Dim.Width, "x", selectedMedia.Dim.Height)
+		}
 		switch data.Type {
 		case reddit.FetchResultMediaTypePhoto:
 			return c.handlePhotoUpload(bot, selectedMedia.Link, data.Title, data.ThumbnailLinks.SelectThumbnail(maxThumbnailDimensions), realPostUrl, data.Description, ctx.EffectiveChat.Id, true)
 		case reddit.FetchResultMediaTypeGif:
 			return c.handleGifUpload(bot, selectedMedia.Link, data.Title, data.ThumbnailLinks.SelectThumbnail(maxThumbnailDimensions), realPostUrl, data.Description, reddit.Dimension{}, ctx.EffectiveChat.Id)
 		case reddit.FetchResultMediaTypeVideo:
-    audioIndex, hasAudio := data.HasAudio()
-    selectedMedia := data.Medias[0] // Default to first entry
-    for i := len(data.Medias) - 1; i >= 0; i-- {
-        if !hasAudio || i != audioIndex {
-            selectedMedia = data.Medias[i]
-            break
-        }
-    }
-    videoURL := selectedMedia.Link
-    audioURL := ""
-    if hasAudio {
-        audioURL = data.Medias[audioIndex].Link
-    }
-    // Add logging to debug
-    log.Println("Selected video URL:", videoURL)
-    if hasAudio {
-        log.Println("Selected audio URL:", audioURL)
-    }
-    return c.handleVideoUpload(bot, videoURL, audioURL, data.Title, data.ThumbnailLinks.SelectThumbnail(maxThumbnailDimensions), realPostUrl, data.Description, reddit.Dimension{}, data.Duration, ctx.EffectiveChat.Id)
-}
+			_, hasAudio := data.HasAudio()
+			audioURL := ""
+			if hasAudio {
+				audioURL = data.Medias[len(data.Medias)-1].Link
+				log.Println("Selected audio URL:", audioURL)
+			}
+			return c.handleVideoUpload(bot, selectedMedia.Link, audioURL, data.Title, data.ThumbnailLinks.SelectThumbnail(maxThumbnailDimensions), realPostUrl, data.Description, reddit.Dimension{}, data.Duration, ctx.EffectiveChat.Id)
+		}
 	case reddit.FetchResultAlbum:
 		idString := util.UUIDToBase64(uuid.New())
 		err := c.CallbackCache.SetAlbumCache(idString, cache.CallbackAlbumCached{
