@@ -99,7 +99,11 @@ func (o *Oauth) DownloadVideo(vidUrl, audioUrl string) (videoFile *os.File, err 
 		cmd := exec.Command("ffmpeg",
 			"-i", videoFile.Name(),
 			"-i", audFile.Name(),
-			"-c", "copy",
+			"-c:v", "libx264",
+			"-c:a", "aac",
+			"-crf", "18",
+			"-preset", "fast",
+			"-movflags", "+faststart",
 			finalFile.Name(), "-y")
 		var stderr bytes.Buffer
 		cmd.Stderr = &stderr
@@ -108,12 +112,11 @@ func (o *Oauth) DownloadVideo(vidUrl, audioUrl string) (videoFile *os.File, err 
 			log.Println("Unable to convert the video:", err, "\n", stderr.String())
 			_ = finalFile.Close()
 			_ = os.Remove(finalFile.Name())
-			// We don't return error here
+			// Fall back to original video file
 			err = nil
 			return videoFile, nil
 		}
-		// If we have reached here, it means that the conversion was fine
-		// So we swap the final file with video file and delete the video file
+		// If conversion was successful, swap files
 		_ = videoFile.Close()
 		_ = os.Remove(videoFile.Name())
 		videoFile = finalFile
