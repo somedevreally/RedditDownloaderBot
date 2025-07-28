@@ -22,10 +22,11 @@ Table of Contents
 
 * Send Reddit posts and comments as text on Telegram
 * Send images and image galleries hosted on `i.redd.it`
-* Send videos hosted on `v.redd.it`
+* Send videos hosted on `v.redd.it` 
+* Share videos hosted on reddit.com and from alternative UI domains of [Redlib](https://github.com/redlib-org/redlib), utilizing all [active instances](https://raw.githubusercontent.com/redlib-org/redlib-instances/refs/heads/main/instances.json).
 * Convert videos to audio only
 * Send GIFs hosted on Reddit
-* Let users choose the quality of images and videos
+* ~~Let users choose the quality of images and videos~~ Always download higest quality with prompt
 * Limit the users who can use it
 
 # What this bot cannot do
