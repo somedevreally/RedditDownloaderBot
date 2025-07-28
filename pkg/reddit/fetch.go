@@ -3,9 +3,11 @@ package reddit
 import (
 	"RedditDownloaderBot/pkg/common"
 	"RedditDownloaderBot/pkg/util"
+	"encoding/json"
 	"fmt"
 	"github.com/PuerkitoBio/goquery"
 	"html"
+	"io"
 	"log"
 	"net/url"
 	"regexp"
@@ -23,6 +25,54 @@ var nsfwNotAllowedErr = &FetchError{
 }
 
 var giphyCommentRegex = regexp.MustCompile(`!\[gif]\(giphy\|(\w+)(?:\|downsized)?\)`)
+
+// Dynamic Redlib domains fetched at startup
+var redlibDomains []string
+
+// fetchRedlibDomains retrieves domains from the Redlib instances JSON
+func fetchRedlibDomains() []string {
+	resp, err := common.GlobalHttpClient.Get("https://raw.githubusercontent.com/redlib-org/redlib-instances/refs/heads/main/instances.json")
+	if err != nil {
+		log.Println("Failed to fetch Redlib instances:", err)
+		return nil
+	}
+	defer resp.Body.Close()
+
+	body, err := io.ReadAll(resp.Body)
+	if err != nil {
+		log.Println("Failed to read Redlib instances response:", err)
+		return nil
+	}
+
+	var data struct {
+		Instances []struct {
+			URL string `json:"url"`
+		} `json:"instances"`
+	}
+	if err := json.Unmarshal(body, &data); err != nil {
+		log.Println("Failed to parse Redlib instances JSON:", err)
+		return nil
+	}
+
+	domains := make([]string, 0, len(data.Instances))
+	for _, instance := range data.Instances {
+		u, err := url.Parse(instance.URL)
+		if err != nil || u.Host == "" {
+			log.Println("Invalid URL in Redlib instances:", instance.URL)
+			continue
+		}
+		domains = append(domains, u.Host)
+	}
+	return domains
+}
+
+// Initialize redlibDomains at package startup
+func init() {
+	redlibDomains = fetchRedlibDomains()
+	if len(redlibDomains) == 0 {
+		log.Println("No Redlib domains loaded; using fallback domains only")
+	}
+}
 
 // StartFetch gets the post info from url
 // The fetchResult can be one of the following types:
@@ -101,7 +151,16 @@ func (o *Oauth) getPostID(postUrl string) (postID, realPostUrl string, isComment
 			}
 			u, _ = url.Parse(followedUrl)
 		}
-		if u.Host == "www.reddit.com" || u.Host == "reddit.com" || u.Host == "old.reddit.com" {
+		// Check against hardcoded Reddit domains and dynamic Redlib domains
+		allowedDomains := append([]string{"www.reddit.com", "reddit.com", "old.reddit.com"}, redlibDomains...)
+		isAllowedDomain := false
+		for _, domain := range allowedDomains {
+			if u.Host == domain {
+				isAllowedDomain = true
+				break
+			}
+		}
+		if isAllowedDomain {
 			postUrl = line
 			break
 		}
@@ -176,38 +235,36 @@ func getCommentFromRoot(root map[string]interface{}) interface{} {
 // FetchResultMedia
 // FetchResultAlbum
 //
-// This function is seperated from Oauth.StartFetch to write tests for it
+// This function is separated from Oauth.StartFetch to write tests for it
 func getPost(postUrl string, root map[string]interface{}) (fetchResult interface{}, fetchError *FetchError) {
 	// Get post type
 	// To do so, I check data->children[0]->data->post_hint
-	{
-		data, exists := root["data"]
-		if !exists {
-			fetchError = &FetchError{
-				NormalError: "Unable to parse the page data: couldn’t find node `data`",
-				BotError:    "Unable to parse the page data: couldn’t find node `data`",
-			}
-			return
+	data, exists := root["data"]
+	if !exists {
+		fetchError = &FetchError{
+			NormalError: "Unable to parse the page data: couldn’t find node `data`",
+			BotError:    "Unable to parse the page data: couldn’t find node `data`",
 		}
-		children, exists := data.(map[string]interface{})["children"]
-		if !exists {
-			fetchError = &FetchError{
-				NormalError: "Unable to parse the page data: couldn’t find node `data->children`",
-				BotError:    "Unable to parse the page data: couldn’t find node `data->children`",
-			}
-			return
-		}
-		data = children.([]interface{})[0]
-		data, exists = data.(map[string]interface{})["data"]
-		if !exists {
-			fetchError = &FetchError{
-				NormalError: "Unable to parse the page data: couldn’t find node `data->children[0]->data`",
-				BotError:    "Unable to parse the page data: couldn’t find node `data->children[0]->data`",
-			}
-			return
-		}
-		root = data.(map[string]interface{})
+		return
 	}
+	children, exists := data.(map[string]interface{})["children"]
+	if !exists {
+		fetchError = &FetchError{
+			NormalError: "Unable to parse the page data: couldn’t find node `data->children`",
+			BotError:    "Unable to parse the page data: couldn’t find node `data->children`",
+		}
+		return
+	}
+	data = children.([]interface{})[0]
+	data, exists = data.(map[string]interface{})["data"]
+	if !exists {
+		fetchError = &FetchError{
+			NormalError: "Unable to parse the page data: couldn’t find node `data->children[0]->data`",
+			BotError:    "Unable to parse the page data: couldn’t find node `data->children[0]->data`",
+		}
+		return
+	}
+	root = data.(map[string]interface{})
 	// Check if the post is nsfw and bot forbids them
 	nsfw, _ := root["over_18"].(bool)
 	if denyNsfw && nsfw {
@@ -435,83 +492,84 @@ func getPost(postUrl string, root map[string]interface{}) (fetchResult interface
 
 // getGalleryData extracts the gallery data from gallery json
 func getGalleryData(files map[string]interface{}, galleryDataItems []interface{}) []FetchResultAlbumEntry {
-	album := make([]FetchResultAlbumEntry, 0, len(galleryDataItems))
-	for _, data := range galleryDataItems {
-		galleryRoot := files[data.(map[string]interface{})["media_id"].(string)]
-		// Extract the url
-		image := galleryRoot.(map[string]interface{})
-		if image["status"].(string) != "valid" { // I have not encountered anything else except valid so far
-			continue
-		}
-		dataType := image["e"].(string)
-		// Check the type
-		switch dataType {
-		case "Image":
-			link := html.UnescapeString(image["s"].(map[string]interface{})["u"].(string))
-			// Get the caption
-			var caption string
-			if c, ok := data.(map[string]interface{})["caption"]; ok {
-				caption = c.(string)
-			}
-			if c, ok := data.(map[string]interface{})["outbound_url"]; ok {
-				caption += "\n" + c.(string)
-			}
-			// Append to the album
-			album = append(album, FetchResultAlbumEntry{
-				Link:    link,
-				Caption: caption,
-				Type:    FetchResultMediaTypePhoto,
-			})
-		case "AnimatedImage":
-			link := html.UnescapeString(image["s"].(map[string]interface{})["mp4"].(string))
-			// Get the caption
-			var caption string
-			if c, ok := data.(map[string]interface{})["caption"]; ok {
-				caption = c.(string)
-			}
-			if c, ok := data.(map[string]interface{})["outbound_url"]; ok {
-				caption += "\n" + c.(string)
-			}
-			// Append to the album
-			album = append(album, FetchResultAlbumEntry{
-				Link:    link,
-				Caption: caption,
-				Type:    FetchResultMediaTypeGif,
-			})
-		case "RedditVideo":
-			id := image["id"].(string)
-			w := image["x"].(float64)
-			h := image["y"].(float64)
-			// Get the quality
-			res := "96"
-			if w >= 1920 && h >= 1080 { // is this the best way?
-				res = "1080"
-			} else if w >= 1280 && h >= 720 {
-				res = "720"
-			} else if w >= 854 && h >= 480 {
-				res = "480"
-			} else if w >= 640 && h >= 360 {
-				res = "360"
-			} else if w >= 426 && h >= 240 {
-				res = "240"
-			}
-			link := "https://v.redd.it/" + id + "/DASH_" + res + ".mp4"
-			// Get the caption
-			var caption string
-			if c, ok := data.(map[string]interface{})["caption"]; ok {
-				caption = c.(string)
-			}
-			// Append to the album
-			album = append(album, FetchResultAlbumEntry{
-				Link:    link,
-				Caption: caption,
-				Type:    FetchResultMediaTypeVideo,
-			})
-		default:
-			log.Println("Unknown type in send gallery:", dataType)
-		}
-	}
-	return album
+    album := make([]FetchResultAlbumEntry, 0, len(galleryDataItems))
+    for _, item := range galleryDataItems {
+        data := item.(map[string]interface{})
+        galleryRoot := files[data["media_id"].(string)]
+        // Extract the url
+        image := galleryRoot.(map[string]interface{})
+        if image["status"].(string) != "valid" {
+            continue
+        }
+        dataType := image["e"].(string)
+        // Check the type
+        switch dataType {
+        case "Image":
+            link := html.UnescapeString(image["s"].(map[string]interface{})["u"].(string))
+            // Get the caption
+            var caption string
+            if c, ok := data["caption"]; ok {
+                caption = c.(string)
+            }
+            if c, ok := data["outbound_url"]; ok {
+                caption += "\n" + c.(string)
+            }
+            // Append to the album
+            album = append(album, FetchResultAlbumEntry{
+                Link:    link,
+                Caption: caption,
+                Type:    FetchResultMediaTypePhoto,
+            })
+        case "AnimatedImage":
+            link := html.UnescapeString(image["s"].(map[string]interface{})["mp4"].(string))
+            // Get the caption
+            var caption string
+            if c, ok := data["caption"]; ok {
+                caption = c.(string)
+            }
+            if c, ok := data["outbound_url"]; ok {
+                caption += "\n" + c.(string)
+            }
+            // Append to the album
+            album = append(album, FetchResultAlbumEntry{
+                Link:    link,
+                Caption: caption,
+                Type:    FetchResultMediaTypeGif,
+            })
+        case "RedditVideo":
+            id := image["id"].(string)
+            w := image["x"].(float64)
+            h := image["y"].(float64)
+            // Determine the quality based on dimensions
+            res := "96"
+            if w >= 1920 && h >= 1080 {
+                res = "1080"
+            } else if w >= 1280 && h >= 720 {
+                res = "720"
+            } else if w >= 854 && h >= 480 {
+                res = "480"
+            } else if w >= 640 && h >= 360 {
+                res = "360"
+            } else if w >= 426 && h >= 240 {
+                res = "240"
+            }
+            link := "https://v.redd.it/" + id + "/DASH_" + res + ".mp4"
+            // Get the caption
+            var caption string
+            if c, ok := data["caption"]; ok {
+                caption = c.(string)
+            }
+            // Append to the album
+            album = append(album, FetchResultAlbumEntry{
+                Link:    link,
+                Caption: caption,
+                Type:    FetchResultMediaTypeVideo,
+            })
+        default:
+            log.Println("Unknown type in send gallery:", dataType)
+        }
+    }
+    return album
 }
 
 // extractPhotoGifQualities creates an array of FetchResultMediaEntry which are the qualities
