@@ -59,7 +59,7 @@ func fetchRedlibDomains() []string {
 		u, err := url.Parse(instance.URL)
 		if err != nil || u.Host == "" {
 			log.Println("Invalid URL in Redlib instances:", instance.URL)
-			continue
+		 continue
 		}
 		domains = append(domains, u.Host)
 	}
@@ -152,7 +152,7 @@ func (o *Oauth) getPostID(postUrl string) (postID, realPostUrl string, isComment
 			u, _ = url.Parse(followedUrl)
 		}
 		// Check against hardcoded Reddit domains and dynamic Redlib domains
-		allowedDomains := append([]string{"www.reddit.com", "reddit.com", "old.reddit.com"}, redlibDomains...)
+		allowedDomains := append([]string{"www.reddit.com", "reddit.com", "old.reddit.com", "libreddit.d.lan"}, redlibDomains...)
 		isAllowedDomain := false
 		for _, domain := range allowedDomains {
 			if u.Host == domain {
@@ -492,84 +492,84 @@ func getPost(postUrl string, root map[string]interface{}) (fetchResult interface
 
 // getGalleryData extracts the gallery data from gallery json
 func getGalleryData(files map[string]interface{}, galleryDataItems []interface{}) []FetchResultAlbumEntry {
-    album := make([]FetchResultAlbumEntry, 0, len(galleryDataItems))
-    for _, item := range galleryDataItems {
-        data := item.(map[string]interface{})
-        galleryRoot := files[data["media_id"].(string)]
-        // Extract the url
-        image := galleryRoot.(map[string]interface{})
-        if image["status"].(string) != "valid" {
-            continue
-        }
-        dataType := image["e"].(string)
-        // Check the type
-        switch dataType {
-        case "Image":
-            link := html.UnescapeString(image["s"].(map[string]interface{})["u"].(string))
-            // Get the caption
-            var caption string
-            if c, ok := data["caption"]; ok {
-                caption = c.(string)
-            }
-            if c, ok := data["outbound_url"]; ok {
-                caption += "\n" + c.(string)
-            }
-            // Append to the album
-            album = append(album, FetchResultAlbumEntry{
-                Link:    link,
-                Caption: caption,
-                Type:    FetchResultMediaTypePhoto,
-            })
-        case "AnimatedImage":
-            link := html.UnescapeString(image["s"].(map[string]interface{})["mp4"].(string))
-            // Get the caption
-            var caption string
-            if c, ok := data["caption"]; ok {
-                caption = c.(string)
-            }
-            if c, ok := data["outbound_url"]; ok {
-                caption += "\n" + c.(string)
-            }
-            // Append to the album
-            album = append(album, FetchResultAlbumEntry{
-                Link:    link,
-                Caption: caption,
-                Type:    FetchResultMediaTypeGif,
-            })
-        case "RedditVideo":
-            id := image["id"].(string)
-            w := image["x"].(float64)
-            h := image["y"].(float64)
-            // Determine the quality based on dimensions
-            res := "96"
-            if w >= 1920 && h >= 1080 {
-                res = "1080"
-            } else if w >= 1280 && h >= 720 {
-                res = "720"
-            } else if w >= 854 && h >= 480 {
-                res = "480"
-            } else if w >= 640 && h >= 360 {
-                res = "360"
-            } else if w >= 426 && h >= 240 {
-                res = "240"
-            }
-            link := "https://v.redd.it/" + id + "/DASH_" + res + ".mp4"
-            // Get the caption
-            var caption string
-            if c, ok := data["caption"]; ok {
-                caption = c.(string)
-            }
-            // Append to the album
-            album = append(album, FetchResultAlbumEntry{
-                Link:    link,
-                Caption: caption,
-                Type:    FetchResultMediaTypeVideo,
-            })
-        default:
-            log.Println("Unknown type in send gallery:", dataType)
-        }
-    }
-    return album
+	album := make([]FetchResultAlbumEntry, 0, len(galleryDataItems))
+	for _, item := range galleryDataItems {
+		data := item.(map[string]interface{})
+		galleryRoot := files[data["media_id"].(string)]
+		// Extract the url
+		image := galleryRoot.(map[string]interface{})
+		if image["status"].(string) != "valid" {
+			continue
+		}
+		dataType := image["e"].(string)
+		// Check the type
+		switch dataType {
+		case "Image":
+			link := html.UnescapeString(image["s"].(map[string]interface{})["u"].(string))
+			// Get the caption
+			var caption string
+			if c, ok := data["caption"]; ok {
+				caption = c.(string)
+			}
+			if c, ok := data["outbound_url"]; ok {
+				caption += "\n" + c.(string)
+			}
+			// Append to the album
+			album = append(album, FetchResultAlbumEntry{
+				Link:    link,
+				Caption: caption,
+				Type:    FetchResultMediaTypePhoto,
+			})
+		case "AnimatedImage":
+			link := html.UnescapeString(image["s"].(map[string]interface{})["mp4"].(string))
+			// Get the caption
+			var caption string
+			if c, ok := data["caption"]; ok {
+				caption = c.(string)
+			}
+			if c, ok := data["outbound_url"]; ok {
+				caption += "\n" + c.(string)
+			}
+			// Append to the album
+			album = append(album, FetchResultAlbumEntry{
+				Link:    link,
+				Caption: caption,
+				Type:    FetchResultMediaTypeGif,
+			})
+		case "RedditVideo":
+			id := image["id"].(string)
+			w := image["x"].(float64)
+			h := image["y"].(float64)
+			// Get the quality
+			res := "96"
+			if w >= 1920 && h >= 1080 {
+				res = "1080"
+			} else if w >= 1280 && h >= 720 {
+				res = "720"
+			} else if w >= 854 && h >= 480 {
+				res = "480"
+			} else if w >= 640 && h >= 360 {
+				res = "360"
+			} else if w >= 426 && h >= 240 {
+				res = "240"
+			}
+			link := "https://v.redd.it/" + id + "/DASH_" + res + ".mp4"
+			// Get the caption
+			var caption string
+			if c, ok := data["caption"]; ok {
+				caption = c.(string)
+			}
+			// Append to the album
+			album = append(album, FetchResultAlbumEntry{
+				Link:    link,
+				Caption: caption,
+				Type:    FetchResultMediaTypeVideo,
+			})
+		default:
+			log.Println("Unknown type in send gallery:", dataType)
+		}
+	}
+	return album
 }
 
 // extractPhotoGifQualities creates an array of FetchResultMediaEntry which are the qualities
@@ -577,23 +577,20 @@ func getGalleryData(files map[string]interface{}, galleryDataItems []interface{}
 func extractPhotoGifQualities(data map[string]interface{}) []FetchResultMediaEntry {
 	resolutions := data["resolutions"].([]interface{})
 	result := make([]FetchResultMediaEntry, 0, 1+len(resolutions))
-	// Include source image at last to keep the increasing quality
-	// Just a note for myself: This can be different from the one in resolutions
-	{
-		u, w, h := extractLinkAndRes(data["source"])
-		result = append(result, FetchResultMediaEntry{
-			Link:    u,
-			Quality: strconv.FormatInt(w, 10) + "×" + strconv.FormatInt(h, 10),
-			Dim: Dimension{
-				Width:  w,
-				Height: h,
-			},
-		})
-	}
-	// Now get all other thumbs
+	// Include source image first (highest quality)
+	u, w, h := extractLinkAndRes(data["source"])
+	result = append(result, FetchResultMediaEntry{
+		Link:    u,
+		Quality: strconv.FormatInt(w, 10) + "×" + strconv.FormatInt(h, 10),
+		Dim: Dimension{
+			Width:  w,
+			Height: h,
+		},
+	})
+	// Now append lower resolutions in descending order
 	for i := len(resolutions) - 1; i >= 0; i-- {
 		u, w, h := extractLinkAndRes(resolutions[i])
-		if i == len(resolutions)-1 { // In first case, the sizes can be same. Example: https://www.reddit.com/r/dankmemes/comments/vqphiy/more_than_bargain_for/
+		if i == len(resolutions)-1 {
 			dim := Dimension{w, h}
 			if dim == result[0].Dim {
 				continue
@@ -620,7 +617,12 @@ func extractVideoQualities(DASHPlaylistURL string) ([]FetchResultMediaEntry, err
 	}
 	SortVideoQualities(qualities.AvailableVideos)
 	base := getVideoVRedditBaseURL(DASHPlaylistURL)
-	// Convert the qualities
+	// Log all available video qualities
+	log.Println("Available video qualities for", DASHPlaylistURL)
+	for i, video := range qualities.AvailableVideos {
+		log.Printf("Video %d: BaseURL=%s, Quality=%sp, Width=%d, Height=%d", i, video.BaseURL, video.Quality(), video.Dimension.Width, video.Dimension.Height)
+	}
+	// Convert the qualities (ascending order, lowest to highest)
 	result := make([]FetchResultMediaEntry, 0, len(qualities.AvailableVideos)+1)
 	for _, video := range qualities.AvailableVideos {
 		result = append(result, FetchResultMediaEntry{
@@ -631,8 +633,10 @@ func extractVideoQualities(DASHPlaylistURL string) ([]FetchResultMediaEntry, err
 	}
 	// Check for audio
 	if len(qualities.AvailableAudios) != 0 {
+		audioURL := base + string(qualities.AvailableAudios[len(qualities.AvailableAudios)-1])
+		log.Println("Audio URL:", audioURL)
 		result = append(result, FetchResultMediaEntry{
-			Link:    base + string(qualities.AvailableAudios[len(qualities.AvailableAudios)-1]),
+			Link:    audioURL,
 			Quality: DownloadAudioQuality,
 		})
 	}
@@ -689,7 +693,6 @@ func extractThumbnails(root map[string]interface{}) FetchedThumbnails {
 				Dim:  Dimension{}, // left empty...
 			}}
 		}
-
 	}
 	// Nothing found. Return empty string
 	return nil
