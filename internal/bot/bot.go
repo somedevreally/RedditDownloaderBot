@@ -114,48 +114,34 @@ func (c *Client) fetchPostDetailsAndSend(bot *gotgbot.Bot, ctx *ext.Context) err
 			toSendText = "No media found."
 			break
 		}
-		// If there is one media quality, download it
-		// Also allow the user to choose between photo or document in image
-		if len(data.Medias) == 1 && data.Type != reddit.FetchResultMediaTypePhoto {
-			switch data.Type {
-			case reddit.FetchResultMediaTypeGif:
-				return c.handleGifUpload(bot, data.Medias[0].Link, data.Title, data.ThumbnailLinks.SelectThumbnail(maxThumbnailDimensions), realPostUrl, data.Description, data.Medias[0].Dim, ctx.EffectiveChat.Id)
-			case reddit.FetchResultMediaTypeVideo:
-				// If the video does have an audio, ask user if they want the audio
-				if _, hasAudio := data.HasAudio(); !hasAudio {
-					// Otherwise, just download the video
-					return c.handleVideoUpload(bot, data.Medias[0].Link, "", data.Title, data.ThumbnailLinks.SelectThumbnail(maxThumbnailDimensions), realPostUrl, data.Description, data.Medias[0].Dim, data.Duration, ctx.EffectiveChat.Id)
-				}
-			default:
-				panic("Shash")
-			}
-		}
-		// Allow the user to select quality
-		toSendText = "Please select the quality."
-		idString := util.UUIDToBase64(uuid.New())
-		audioIndex, _ := data.HasAudio()
+		// Select the highest quality media
+		selectedMedia := data.Medias[len(data.Medias)-1]
 		switch data.Type {
 		case reddit.FetchResultMediaTypePhoto:
-			toSendOpt.ReplyMarkup = createPhotoInlineKeyboard(idString, data)
+			return c.handlePhotoUpload(bot, selectedMedia.Link, data.Title, data.ThumbnailLinks.SelectThumbnail(maxThumbnailDimensions), realPostUrl, data.Description, ctx.EffectiveChat.Id, true)
 		case reddit.FetchResultMediaTypeGif:
-			toSendOpt.ReplyMarkup = createGifInlineKeyboard(idString, data)
+			return c.handleGifUpload(bot, selectedMedia.Link, data.Title, data.ThumbnailLinks.SelectThumbnail(maxThumbnailDimensions), realPostUrl, data.Description, reddit.Dimension{}, ctx.EffectiveChat.Id)
 		case reddit.FetchResultMediaTypeVideo:
-			toSendOpt.ReplyMarkup = createVideoInlineKeyboard(idString, data)
-		}
-		// Insert the id in cache
-		err := c.CallbackCache.SetMediaCache(idString, cache.CallbackDataCached{
-			PostLink:      realPostUrl,
-			Links:         getLinkMapOfFetchResultMediaEntries(data.Medias),
-			Title:         data.Title,
-			ThumbnailLink: data.ThumbnailLinks.SelectThumbnail(maxThumbnailDimensions),
-			Description:   data.Description,
-			Type:          data.Type,
-			Duration:      data.Duration,
-			AudioIndex:    audioIndex,
-		})
-		if err != nil {
-			log.Println("Cannot set the media cache in database:", err)
-		}
+    audioIndex, hasAudio := data.HasAudio()
+    selectedMedia := data.Medias[0] // Default to first entry
+    for i := len(data.Medias) - 1; i >= 0; i-- {
+        if !hasAudio || i != audioIndex {
+            selectedMedia = data.Medias[i]
+            break
+        }
+    }
+    videoURL := selectedMedia.Link
+    audioURL := ""
+    if hasAudio {
+        audioURL = data.Medias[audioIndex].Link
+    }
+    // Add logging to debug
+    log.Println("Selected video URL:", videoURL)
+    if hasAudio {
+        log.Println("Selected audio URL:", audioURL)
+    }
+    return c.handleVideoUpload(bot, videoURL, audioURL, data.Title, data.ThumbnailLinks.SelectThumbnail(maxThumbnailDimensions), realPostUrl, data.Description, reddit.Dimension{}, data.Duration, ctx.EffectiveChat.Id)
+}
 	case reddit.FetchResultAlbum:
 		idString := util.UUIDToBase64(uuid.New())
 		err := c.CallbackCache.SetAlbumCache(idString, cache.CallbackAlbumCached{
